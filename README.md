@@ -32,7 +32,7 @@
 # Erwinia.CRR1.fasta - contains all of the CRISPR spacers, the strain they are from, and their genomic positions.
 # Erwinia.CRR1Aligned.csv - a visual representation of the spacer alignment in a spreadsheet. The top line is the consensus sequence and the each strain will show which CRISPR region and spacer it matches with (e.g. CRR1S2).
 # Erwinia.CRR1Aligned.fasta - the alignment of the sequences for all of the spacers. Can be analyzed to SNPs (MEGA X).
-# Erwinia.CRR1Binary.phy - a phylip file of the spacer alignment in binary format. Can be used with IQ Tree to produce a phylogeny of the CRISPR cassette. Note phylip format only allows 10 characters in the name of the sequence.
-# Erwinia.CRR1Unique.fasta - all of the unique CRISPR spacers which were found in this casette.
+# Erwinia.CRR1Binary.phy - a phylip file of the spacer alignment in binary format. Can be used with IQ Tree to produce a phylogeny of the CRISPR array. Note phylip format only allows 10 characters in the name of the sequence.
+# Erwinia.CRR1Unique.fasta - all of the unique CRISPR spacers which were found in this array.
 
 # The AllCRR folder contains the same data files as the CRR folders but the data represents all of the CRISPR cassettes ordered CRR1, CRR2, then CRR4.
