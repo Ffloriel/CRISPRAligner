@@ -1,5 +1,5 @@
 # ErwiniaCRISPRAligner
-# Written by: Michael Parcey (mp17ll@brocku.ca)
+# Written by: Michael Parcey
 
 # ErwiniaCRISPRAligner is a series of scripts which are used to extract and align CRISPR spacers from the genome of Erwinia amylovora. This pipeline was created for a specific study will not be supported or developed past submission. The scripts are not compiled so they can be freely used and modified.
 # If used or modified, please reference:
