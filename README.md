@@ -3,7 +3,7 @@
 
 # ErwiniaCRISPRAligner is a series of scripts which are used to extract and align CRISPR spacers from the genome of Erwinia amylovora. This pipeline was created for a specific study will not be supported or developed past submission. The scripts are not compiled so they can be freely used and modified.
 # If used or modified, please reference:
-# Parcey M, Gayder S, Castle AJ, Svircev AM. 2021. The role of the CRISPR-Cas system of Erwinia amylovora in phylogenetics and phage resistance.
+# Parcey M, Gayder S, Castle AJ, Svircev AM. 2022. Function and Application of the CRISPR-Cas System in the Plant Pathogen Erwinia amylovora. Appl Envir Micro. e02513-21. doi: 10.1128/aem.02513-21
 
 # REQUIREMENTS
 
