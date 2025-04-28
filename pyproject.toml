@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crispr_aligner"
+version = "0.1.0"
+description = "Extract and align CRISPR spacers from Erwinia amylovora genomes"
+authors = [
+    {name = "Michael Parcey", email = "mp17ll@brocku.ca"},
+    {name = "Floriel Fedry"}
+]
+readme = "README.md"
+requires-python = ">=3.6"
+dependencies = [
+    "biopython",
+    "numpy",
+]
+
+[project.scripts]
+crispr_aligner = "crispr_aligner.cli:main"
