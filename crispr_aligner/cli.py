@@ -93,6 +93,7 @@ def main():
             "crr2": args.min_crr2_score,
             "crr4": args.min_crr4_score,
         },
+        short_checks=config["short_checks"],
     )
 
     print("Aligning CRISPR Spacers...")
