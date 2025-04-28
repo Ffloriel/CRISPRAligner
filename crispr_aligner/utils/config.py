@@ -16,19 +16,18 @@ DEFAULT_CONFIGS = {
             "crr4_start": "GTTCAC",
             "crr4_middle": "GTACGGG",
         },
+        "available_crrs": ["crr1", "crr2", "crr4"],
     },
     "phytobacter": {
         "consensus_sequences": {
             "crr1": "GTGTTCCCCGCGCGAGCGGGGATAAACCG",
             "crr2": "GTGTTCCCCGCGCCAGCGGGGATAAACCG",
-            "crr4": "GTGTTCCCCGCGCAAGCGGGGATAAACCG",
         },
         "short_checks": {
             "crr1_crr2_start": "GTGTTC",
             "crr1_crr2_end": "ATAAACC",
-            "crr4_start": "GTTCAC",
-            "crr4_middle": "CCAAAAC",
         },
+        "available_crrs": ["crr1", "crr2"],
     },
     # Add more bacteria as needed
 }

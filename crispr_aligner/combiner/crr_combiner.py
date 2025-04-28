@@ -1,262 +1,223 @@
 """Utilities for combining aligned CRISPR arrays from different regions."""
 
 from pathlib import Path
-from typing import List, Union
+from typing import Union, List
 from Bio import SeqIO
 
 
-def combine_aligned_fasta(
-    crr1_aligned_path: Union[str, Path],
-    crr2_aligned_path: Union[str, Path],
-    crr4_aligned_path: Union[str, Path],
-    output_path: Union[str, Path],
+def combine_fasta(
+    aligned_fastas: List[Union[str, Path]], output_path: Union[str, Path]
 ) -> Path:
     """
-    Combine aligned FASTA files from different CRISPR repeat regions.
+    Combine multiple aligned FASTA files from different CRISPR repeat regions.
 
     Args:
-        crr1_aligned_path: Path to CRR1 aligned FASTA file
-        crr2_aligned_path: Path to CRR2 aligned FASTA file
-        crr4_aligned_path: Path to CRR4 aligned FASTA file
+        aligned_fastas: List of paths to aligned FASTA files
         output_path: Path to write combined output
 
     Returns:
         Path to the output file
     """
-    crr1_aligned_path = Path(crr1_aligned_path)
-    crr2_aligned_path = Path(crr2_aligned_path)
-    crr4_aligned_path = Path(crr4_aligned_path)
+    # Convert all paths to Path objects
+    fastas = [Path(f) for f in aligned_fastas]
     output_path = Path(output_path)
+
+    # Ensure we have at least one file
+    if not fastas:
+        print("No FASTA files provided for combination")
+        return output_path
 
     # Ensure parent directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with output_path.open("w") as output_file:
-        with crr1_aligned_path.open("r") as crr1_file:
-            crr1_records = SeqIO.parse(crr1_file, "fasta")
+    # Get all strain IDs from the first file
+    strain_ids = set()
+    with fastas[0].open("r") as first_file:
+        records = SeqIO.parse(first_file, "fasta")
+        for record in records:
+            strain_ids.add(record.id)
 
-            for record1 in crr1_records:
-                output_file.write(f">{record1.id}\n{record1.seq}")
+    # Create a mapping of strain_id -> {file_index: sequence}
+    combined_seqs = {strain_id: {} for strain_id in strain_ids}
 
-                # Find matching record in CRR2
-                with crr2_aligned_path.open("r") as crr2_file:
-                    crr2_records = SeqIO.parse(crr2_file, "fasta")
-                    for record2 in crr2_records:
-                        if record1.id == record2.id:
-                            output_file.write(str(record2.seq))
-                            break
+    # Read all sequences from all files
+    for i, fasta_path in enumerate(fastas):
+        with fasta_path.open("r") as f:
+            records = SeqIO.parse(f, "fasta")
+            for record in records:
+                if record.id in combined_seqs:
+                    combined_seqs[record.id][i] = str(record.seq)
 
-                # Find matching record in CRR4
-                with crr4_aligned_path.open("r") as crr4_file:
-                    crr4_records = SeqIO.parse(crr4_file, "fasta")
-                    for record4 in crr4_records:
-                        if record1.id == record4.id:
-                            output_file.write(str(record4.seq))
-                            break
+    # Write combined file
+    with output_path.open("w") as out_file:
+        for strain_id in strain_ids:
+            out_file.write(f">{strain_id}\n")
+            for i in range(len(fastas)):
+                if i in combined_seqs[strain_id]:
+                    out_file.write(combined_seqs[strain_id][i])
+            out_file.write("\n")
 
-                output_file.write("\n")
-
-    print(f"Combined FASTA alignments written to {output_path}")
+    print(f"Combined {len(fastas)} FASTA alignments written to {output_path}")
     return output_path
 
 
-def combine_csv_files(
-    crr1_csv_path: Union[str, Path],
-    crr2_csv_path: Union[str, Path],
-    crr4_csv_path: Union[str, Path],
-    output_path: Union[str, Path],
+def combine_csv(
+    csv_files: List[Union[str, Path]], output_path: Union[str, Path]
 ) -> Path:
     """
-    Combine CSV files from different CRISPR repeat regions.
+    Combine multiple CSV files from different CRISPR repeat regions.
 
     Args:
-        crr1_csv_path: Path to CRR1 CSV file
-        crr2_csv_path: Path to CRR2 CSV file
-        crr4_csv_path: Path to CRR4 CSV file
+        csv_files: List of paths to CSV files
         output_path: Path to write combined output
 
     Returns:
         Path to the output file
     """
-    crr1_csv_path = Path(crr1_csv_path)
-    crr2_csv_path = Path(crr2_csv_path)
-    crr4_csv_path = Path(crr4_csv_path)
+    # Convert all paths to Path objects
+    csv_paths = [Path(f) for f in csv_files]
     output_path = Path(output_path)
+
+    # Ensure we have at least one file
+    if not csv_paths:
+        print("No CSV files provided for combination")
+        return output_path
 
     # Ensure parent directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     # Read all CSV files into memory
-    crr1_rows = []
-    with crr1_csv_path.open("r") as crr1_file:
-        for line in crr1_file:
-            line = line.strip()
-            crr1_rows.append(line.split(","))
-
-    crr2_rows = []
-    with crr2_csv_path.open("r") as crr2_file:
-        for line in crr2_file:
-            line = line.strip()
-            crr2_rows.append(line.split(","))
-
-    crr4_rows = []
-    with crr4_csv_path.open("r") as crr4_file:
-        for line in crr4_file:
-            line = line.strip()
-            crr4_rows.append(line.split(","))
+    all_rows = []
+    for i, csv_path in enumerate(csv_paths):
+        rows = []
+        with csv_path.open("r") as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    rows.append(line.split(","))
+        all_rows.append(rows)
 
     # Write combined CSV
     with output_path.open("w") as out_file:
-        for i in range(len(crr1_rows)):
-            # Write CRR1 data
-            out_file.write(",".join(crr1_rows[i]))
+        # Determine max number of rows
+        max_rows = max(len(rows) for rows in all_rows) if all_rows else 0
 
-            # Add CRR2 data (skip first column)
-            if i < len(crr2_rows) and len(crr2_rows[i]) > 1:
-                out_file.write(",")
-                out_file.write(",".join(crr2_rows[i][1:]))
+        # Process each row
+        for i in range(max_rows):
+            row_parts = []
 
-            # Add CRR4 data (skip first column)
-            if i < len(crr4_rows) and len(crr4_rows[i]) > 1:
-                out_file.write(",")
-                out_file.write(",".join(crr4_rows[i][1:]))
+            # For first file, include all columns
+            if all_rows and i < len(all_rows[0]):
+                row_parts.append(",".join(all_rows[0][i]))
 
-            out_file.write("\n")
+            # For other files, skip first column (strain ID)
+            for file_idx in range(1, len(all_rows)):
+                if i < len(all_rows[file_idx]) and len(all_rows[file_idx][i]) > 1:
+                    row_parts.append(",".join(all_rows[file_idx][i][1:]))
 
-    print(f"Combined CSV files written to {output_path}")
+            out_file.write(",".join(row_parts) + "\n")
+
+    print(f"Combined {len(csv_paths)} CSV files written to {output_path}")
     return output_path
 
 
-def combine_binary_files(
-    crr1_binary_path: Union[str, Path],
-    crr2_binary_path: Union[str, Path],
-    crr4_binary_path: Union[str, Path],
-    output_path: Union[str, Path],
+def combine_binary(
+    binary_files: List[Union[str, Path]], output_path: Union[str, Path]
 ) -> Path:
     """
-    Combine binary phylip files from different CRISPR repeat regions.
+    Combine multiple binary phylip files from different CRISPR repeat regions.
 
     Args:
-        crr1_binary_path: Path to CRR1 binary phylip file
-        crr2_binary_path: Path to CRR2 binary phylip file
-        crr4_binary_path: Path to CRR4 binary phylip file
+        binary_files: List of paths to binary phylip files
         output_path: Path to write combined output
 
     Returns:
         Path to the output file
     """
-    crr1_binary_path = Path(crr1_binary_path)
-    crr2_binary_path = Path(crr2_binary_path)
-    crr4_binary_path = Path(crr4_binary_path)
+    # Convert all paths to Path objects
+    phy_paths = [Path(f) for f in binary_files]
     output_path = Path(output_path)
+
+    # Ensure we have at least one file
+    if not phy_paths:
+        print("No binary files provided for combination")
+        return output_path
 
     # Ensure parent directory exists
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    first_line = True
-    with output_path.open("w") as out_file:
-        with crr1_binary_path.open("r") as crr1_file:
-            for line1 in crr1_file:
-                line1 = line1.strip()
+    # Read headers to calculate total character count
+    taxa_count = 0
+    char_counts = []
 
-                # Special handling for the first line (header)
-                if first_line:
-                    first_line = False
+    for phy_path in phy_paths:
+        with phy_path.open("r") as f:
+            header = f.readline().strip().split()
+            if not taxa_count:
+                taxa_count = int(header[0])
+            char_counts.append(int(header[1]))
 
-                    # Parse header values
-                    parts1 = line1.split()
-                    taxa_count = parts1[0]
+    # Read all data lines
+    strain_data = {}
 
-                    # Get character counts from all files
-                    with crr2_binary_path.open("r") as crr2_file:
-                        parts2 = crr2_file.readline().strip().split()
-                        char_count2 = int(parts2[1])
-
-                    with crr4_binary_path.open("r") as crr4_file:
-                        parts4 = crr4_file.readline().strip().split()
-                        char_count4 = int(parts4[1])
-
-                    # Calculate total character count
-                    total_chars = int(parts1[1]) + char_count2 + char_count4
-
-                    # Write combined header
-                    out_file.write(f"{taxa_count} {total_chars}\n")
+    for file_idx, phy_path in enumerate(phy_paths):
+        with phy_path.open("r") as f:
+            next(f)  # Skip header
+            for line in f:
+                line = line.strip()
+                if not line:
                     continue
 
-                # For data lines, append sequences from all files
-                out_file.write(line1)
-
                 # Get strain ID (first 10 chars)
-                strain_id = line1[: min(10, len(line1))]
+                strain_id = line[: min(10, len(line))].strip()
+                data = line[min(10, len(line)) :]
 
-                # Find matching lines in other files
-                with crr2_binary_path.open("r") as crr2_file:
-                    next(crr2_file)  # Skip header
-                    for line2 in crr2_file:
-                        line2 = line2.strip()
-                        if line2.startswith(strain_id):
-                            # Append data part (after ID)
-                            out_file.write(line2[min(10, len(line2)) :])
-                            break
+                if strain_id not in strain_data:
+                    strain_data[strain_id] = {}
 
-                with crr4_binary_path.open("r") as crr4_file:
-                    next(crr4_file)  # Skip header
-                    for line4 in crr4_file:
-                        line4 = line4.strip()
-                        if line4.startswith(strain_id):
-                            # Append data part (after ID)
-                            out_file.write(line4[min(10, len(line4)) :])
-                            break
+                strain_data[strain_id][file_idx] = data
 
-                out_file.write("\n")
+    # Write combined file
+    with output_path.open("w") as out_file:
+        # Write header
+        total_chars = sum(char_counts)
+        out_file.write(f"{taxa_count} {total_chars}\n")
 
-    print(f"Combined binary files written to {output_path}")
+        # Write data for each strain
+        for strain_id, data_dict in strain_data.items():
+            out_file.write(f"{strain_id.ljust(10)}")
+
+            for file_idx in range(len(phy_paths)):
+                if file_idx in data_dict:
+                    out_file.write(data_dict[file_idx])
+
+            out_file.write("\n")
+
+    print(f"Combined {len(phy_paths)} binary files written to {output_path}")
     return output_path
 
 
 def combine_alignments(
-    crr1_aligned_fasta: Union[str, Path],
-    crr2_aligned_fasta: Union[str, Path],
-    crr4_aligned_fasta: Union[str, Path],
-    all_crr_aligned_fasta: Union[str, Path],
-    crr1_aligned_csv: Union[str, Path],
-    crr2_aligned_csv: Union[str, Path],
-    crr4_aligned_csv: Union[str, Path],
-    all_crr_aligned_csv: Union[str, Path],
-    crr1_binary_phy: Union[str, Path],
-    crr2_binary_phy: Union[str, Path],
-    crr4_binary_phy: Union[str, Path],
-    all_crr_binary_phy: Union[str, Path],
+    aligned_fastas: List[Union[str, Path]],
+    output_fasta: Union[str, Path],
+    aligned_csvs: List[Union[str, Path]],
+    output_csv: Union[str, Path],
+    binary_phys: List[Union[str, Path]],
+    output_phy: Union[str, Path],
 ) -> None:
     """
     Combine all alignment files from different CRISPR repeat regions.
 
     Args:
-        crr1_aligned_fasta: Path to CRR1 aligned FASTA file
-        crr2_aligned_fasta: Path to CRR2 aligned FASTA file
-        crr4_aligned_fasta: Path to CRR4 aligned FASTA file
-        all_crr_aligned_fasta: Output path for combined FASTA
-        crr1_aligned_csv: Path to CRR1 aligned CSV file
-        crr2_aligned_csv: Path to CRR2 aligned CSV file
-        crr4_aligned_csv: Path to CRR4 aligned CSV file
-        all_crr_aligned_csv: Output path for combined CSV
-        crr1_binary_phy: Path to CRR1 binary phylip file
-        crr2_binary_phy: Path to CRR2 binary phylip file
-        crr4_binary_phy: Path to CRR4 binary phylip file
-        all_crr_binary_phy: Output path for combined phylip
+        aligned_fastas: List of paths to aligned FASTA files
+        output_fasta: Output path for combined FASTA
+        aligned_csvs: List of paths to aligned CSV files
+        output_csv: Output path for combined CSV
+        binary_phys: List of paths to binary phylip files
+        output_phy: Output path for combined phylip
     """
-    # Combine all file types
-    combine_aligned_fasta(
-        crr1_aligned_fasta,
-        crr2_aligned_fasta,
-        crr4_aligned_fasta,
-        all_crr_aligned_fasta,
-    )
-    combine_csv_files(
-        crr1_aligned_csv, crr2_aligned_csv, crr4_aligned_csv, all_crr_aligned_csv
-    )
-    combine_binary_files(
-        crr1_binary_phy, crr2_binary_phy, crr4_binary_phy, all_crr_binary_phy
-    )
+    combine_fasta(aligned_fastas, output_fasta)
+    combine_csv(aligned_csvs, output_csv)
+    combine_binary(binary_phys, output_phy)
 
     print("All alignment files successfully combined")

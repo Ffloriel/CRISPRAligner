@@ -6,25 +6,28 @@ from pathlib import Path
 from crispr_aligner.sequences.fasta_utils import combine_fasta_files
 from crispr_aligner.finder.crr_finder import find_crispr_spacers
 from crispr_aligner.aligner.crr_aligner import align_spacers
-from crispr_aligner.combiner.crr_combiner import combine_alignments
+from crispr_aligner.combiner.crr_combiner import (
+    combine_fasta,
+    combine_csv,
+    combine_binary,
+)
 from crispr_aligner.utils.config import load_bacteria_config, get_available_bacteria
 
 
-def create_folder_structure(base_dir):
+def create_folder_structure(base_dir, available_crrs):
     """Create the required folder structure for results."""
     results_dir = base_dir / "Results"
     if results_dir.exists():
         shutil.rmtree(results_dir)
 
-    # Create directories
-    for folder in [
-        "Results",
-        "Results/AllCRR",
-        "Results/CRR1",
-        "Results/CRR2",
-        "Results/CRR4",
-    ]:
-        (base_dir / folder).mkdir(parents=True, exist_ok=True)
+    # Always create Results and AllCRR directory
+    (base_dir / "Results").mkdir(parents=True, exist_ok=True)
+    (base_dir / "Results/AllCRR").mkdir(parents=True, exist_ok=True)
+
+    # Create directories only for available CRRs
+    for crr in available_crrs:
+        crr_upper = crr.upper()
+        (base_dir / f"Results/{crr_upper}").mkdir(parents=True, exist_ok=True)
 
     return results_dir
 
@@ -76,7 +79,8 @@ def main():
         config = load_bacteria_config(args.bacteria)
 
     base_dir = Path(args.input_dir)
-    results_dir = create_folder_structure(base_dir)
+    available_crrs = config.get("available_crrs", ["crr1", "crr2", "crr4"])
+    results_dir = create_folder_structure(base_dir, available_crrs)
 
     print("Combining FASTA Files...")
     combined_fasta = f"{args.prefix}.fasta"
@@ -94,34 +98,78 @@ def main():
             "crr4": args.min_crr4_score,
         },
         short_checks=config["short_checks"],
+        available_crrs=config["available_crrs"],
     )
 
     print("Aligning CRISPR Spacers...")
-    for crr in ["CRR1", "CRR2", "CRR4"]:
+    for crr in available_crrs:
+        crr_upper = crr.upper()
+        input_file = results_dir / crr_upper / f"{args.prefix}.{crr_upper}.fasta"
+
+        # Skip if the file doesn't exist or is empty
+        if not input_file.exists() or input_file.stat().st_size == 0:
+            print(f"Skipping alignment for {crr_upper} (no spacers found)")
+            continue
+
         align_spacers(
-            f"{results_dir}/{crr}/{args.prefix}.{crr}.fasta",
-            f"{results_dir}/{crr}/{args.prefix}.{crr}Aligned.csv",
-            f"{results_dir}/{crr}/{args.prefix}.{crr}Aligned.fasta",
-            f"{results_dir}/{crr}/{args.prefix}.{crr}Unique.fasta",
-            f"{results_dir}/{crr}/{args.prefix}.{crr}Binary.phy",
-            crr,
+            input_file,
+            f"{results_dir}/{crr_upper}/{args.prefix}.{crr_upper}Aligned.csv",
+            f"{results_dir}/{crr_upper}/{args.prefix}.{crr_upper}Aligned.fasta",
+            f"{results_dir}/{crr_upper}/{args.prefix}.{crr_upper}Unique.fasta",
+            f"{results_dir}/{crr_upper}/{args.prefix}.{crr_upper}Binary.phy",
+            crr_upper,
         )
 
     print("Combining Aligned CRISPR Cassettes")
-    combine_alignments(
-        f"{results_dir}/CRR1/{args.prefix}.CRR1Aligned.fasta",
-        f"{results_dir}/CRR2/{args.prefix}.CRR2Aligned.fasta",
-        f"{results_dir}/CRR4/{args.prefix}.CRR4Aligned.fasta",
-        f"{results_dir}/AllCRR/{args.prefix}.AllCRRAligned.fasta",
-        f"{results_dir}/CRR1/{args.prefix}.CRR1Aligned.csv",
-        f"{results_dir}/CRR2/{args.prefix}.CRR2Aligned.csv",
-        f"{results_dir}/CRR4/{args.prefix}.CRR4Aligned.csv",
-        f"{results_dir}/AllCRR/{args.prefix}.AllCRRAligned.csv",
-        f"{results_dir}/CRR1/{args.prefix}.CRR1Binary.phy",
-        f"{results_dir}/CRR2/{args.prefix}.CRR2Binary.phy",
-        f"{results_dir}/CRR4/{args.prefix}.CRR4Binary.phy",
-        f"{results_dir}/AllCRR/{args.prefix}.AllCRRBinary.phy",
-    )
+    # Prepare the input files for combination
+    valid_crrs = []
+    for crr in available_crrs:
+        crr_upper = crr.upper()
+        fasta_file = results_dir / crr_upper / f"{args.prefix}.{crr_upper}Aligned.fasta"
+        if fasta_file.exists() and fasta_file.stat().st_size > 0:
+            valid_crrs.append(crr)
+
+    # Only proceed if we have at least 2 CRRs with data
+    if len(valid_crrs) >= 2:
+        # Collect files for each type
+        fasta_files = []
+        csv_files = []
+        phy_files = []
+
+        for crr in valid_crrs:
+            crr_upper = crr.upper()
+            fasta_file = (
+                results_dir / crr_upper / f"{args.prefix}.{crr_upper}Aligned.fasta"
+            )
+            csv_file = results_dir / crr_upper / f"{args.prefix}.{crr_upper}Aligned.csv"
+            phy_file = results_dir / crr_upper / f"{args.prefix}.{crr_upper}Binary.phy"
+
+            if fasta_file.exists() and fasta_file.stat().st_size > 0:
+                fasta_files.append(fasta_file)
+                csv_files.append(csv_file)
+                phy_files.append(phy_file)
+
+        # Output files
+        fasta_output = results_dir / "AllCRR" / f"{args.prefix}.AllCRRAligned.fasta"
+        csv_output = results_dir / "AllCRR" / f"{args.prefix}.AllCRRAligned.csv"
+        phy_output = results_dir / "AllCRR" / f"{args.prefix}.AllCRRBinary.phy"
+
+        # Call the dynamic combine functions
+        if fasta_files:
+            print(f"Combining aligned FASTA files from {len(fasta_files)} CRR regions")
+            combine_fasta(fasta_files, fasta_output)
+
+        if csv_files:
+            print(f"Combining CSV files from {len(csv_files)} CRR regions")
+            combine_csv(csv_files, csv_output)
+
+        if phy_files:
+            print(f"Combining binary phylip files from {len(phy_files)} CRR regions")
+            combine_binary(phy_files, phy_output)
+    else:
+        print(
+            f"Need at least 2 CRR regions with data to combine. Found {len(valid_crrs)}."
+        )
 
     print("Analysis complete. Results available in the Results directory.")
 
