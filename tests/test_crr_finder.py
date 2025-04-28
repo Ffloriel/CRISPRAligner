@@ -12,7 +12,7 @@ from crispr_aligner.finder.crr_finder import (
     find_crr4_match,
     count_fasta_records,
     process_sequence,
-    find_crispr_spacers
+    find_crispr_spacers,
 )
 
 
@@ -45,44 +45,44 @@ def sample_fasta_file(tmp_path):
     """Create a sample FASTA file with known CRISPR repeats for testing."""
     # Create a test file with known CRR patterns
     fasta_path = tmp_path / "test_genome.fasta"
-    
+
     # Create a genome with CRR1, CRR2, and CRR4 patterns
     # Including repeats and spacers for each
     with fasta_path.open("w") as f:
         # Write header
         f.write(">TestGenome1\n")
-        
+
         # Create a sequence with CRR1 repeat, spacer, repeat pattern
         genome_seq = "N" * 100  # Prefix
-        
+
         # Add CRR1 pattern with spacer
         genome_seq += "GTGTTCCCCGCGTGAGCGGGGATAAACCG"  # CRR1 repeat
-        genome_seq += "ACTAGCTAGCTAGCTAGCTAGCTAGCT"    # Spacer (27bp)
+        genome_seq += "ACTAGCTAGCTAGCTAGCTAGCTAGCT"  # Spacer (27bp)
         genome_seq += "GTGTTCCCCGCGTGAGCGGGGATAAACCG"  # CRR1 repeat
-        
+
         # Add some distance between patterns
         genome_seq += "N" * 100
-        
+
         # Add CRR2 pattern with spacer
         genome_seq += "GTGTTCCCCGCGTATGCGGGGATAAACCG"  # CRR2 repeat
-        genome_seq += "GCATGCATGCATGCATGCATGCAT"       # Spacer (24bp)
+        genome_seq += "GCATGCATGCATGCATGCATGCAT"  # Spacer (24bp)
         genome_seq += "GTGTTCCCCGCGTATGCGGGGATAAACCG"  # CRR2 repeat
-        
+
         # Add some distance between patterns
         genome_seq += "N" * 100
-        
+
         # Add CRR4 pattern with spacer
-        genome_seq += "GTTCACTGCCGTACAGGCAGCTTAGAAA"   # CRR4 repeat
-        genome_seq += "TGACTGACTGACTGACTGACTGACT"      # Spacer (24bp)
-        genome_seq += "GTTCACTGCCGTACAGGCAGCTTAGAAA"   # CRR4 repeat
-        
+        genome_seq += "GTTCACTGCCGTACAGGCAGCTTAGAAA"  # CRR4 repeat
+        genome_seq += "TGACTGACTGACTGACTGACTGACT"  # Spacer (24bp)
+        genome_seq += "GTTCACTGCCGTACAGGCAGCTTAGAAA"  # CRR4 repeat
+
         # Add suffix
         genome_seq += "N" * 100
-        
+
         # Write the sequence with line breaks
         for i in range(0, len(genome_seq), 80):
-            f.write(genome_seq[i:i+80] + "\n")
-    
+            f.write(genome_seq[i : i + 80] + "\n")
+
     return fasta_path
 
 
@@ -91,11 +91,11 @@ def results_dir(tmp_path):
     """Create a temporary results directory."""
     results_dir = tmp_path / "Results"
     results_dir.mkdir(exist_ok=True)
-    
+
     # Create subdirectories
     for subdir in ["AllCRR", "CRR1", "CRR2", "CRR4"]:
         (results_dir / subdir).mkdir(exist_ok=True)
-    
+
     return results_dir
 
 
@@ -154,34 +154,38 @@ def test_count_fasta_records_empty(tmp_path):
 def test_process_sequence(tmp_path):
     """Test processing a sequence to find CRR spacers."""
     # Create sequence with known CRR1 pattern
-    seq = list("N" * 50 + "GTGTTCCCCGCGTGAGCGGGGATAAACCG" + 
-              "ACTAGCTAGCTAGCTAGCTAGCT" + 
-              "GTGTTCCCCGCGTGAGCGGGGATAAACCG" + "N" * 50)
-    
+    seq = list(
+        "N" * 50
+        + "GTGTTCCCCGCGTGAGCGGGGATAAACCG"
+        + "ACTAGCTAGCTAGCTAGCTAGCT"
+        + "GTGTTCCCCGCGTGAGCGGGGATAAACCG"
+        + "N" * 50
+    )
+
     # Create mock output files
     output_files = {}
     for key in ["all", "crr1", "crr2", "crr4", "error", "csv"]:
         file_path = tmp_path / f"{key}.fasta"
         output_files[key] = open(file_path, "w")
-    
+
     try:
         # Process the sequence
         crr1_count, crr2_count, crr4_count = process_sequence(
             "TestGenome", seq, output_files, "test"
         )
-        
+
         # Check counts
         assert crr1_count == 1
         assert crr2_count == 0
         assert crr4_count == 0
-        
+
         # Check file content
         output_files["all"].close()
         with open(tmp_path / "all.fasta", "r") as f:
             content = f.read()
             assert "TestGenome CRR1Spacer1" in content
             assert "ACTAGCTAGCTAGCTAGCTAGCT" in content
-    
+
     finally:
         # Close all files
         for file in output_files.values():
@@ -193,20 +197,20 @@ def test_find_crispr_spacers(sample_fasta_file, results_dir):
     """Test finding CRISPR spacers in a FASTA file."""
     # Run the finder
     result = find_crispr_spacers(sample_fasta_file, "test.", results_dir)
-    
+
     # Check result counts
     assert result["crr1"] > 0
     assert result["crr2"] > 0
     assert result["crr4"] > 0
     assert result["total"] == result["crr1"] + result["crr2"] + result["crr4"]
-    
+
     # Check output files
     crr1_file = results_dir / "CRR1" / "test.CRR1.fasta"
     assert crr1_file.exists()
     with crr1_file.open("r") as f:
         content = f.read()
         assert "TestGenome1 CRR1Spacer1" in content
-    
+
     # Check CSV file
     csv_file = results_dir / "test.Results.csv"
     assert csv_file.exists()
@@ -227,6 +231,6 @@ def test_find_crispr_spacers_empty_file(tmp_path, results_dir):
     """Test with empty FASTA file."""
     empty_file = tmp_path / "empty.fasta"
     empty_file.touch()
-    
+
     result = find_crispr_spacers(empty_file, "test.", results_dir)
     assert result["total"] == 0

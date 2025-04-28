@@ -19,3 +19,7 @@ dependencies = [
 
 [project.scripts]
 crispr_aligner = "crispr_aligner.cli:main"
+
+[tool.setuptools]
+# This explicitly tells setuptools which packages to include
+packages = ["crispr_aligner"]
