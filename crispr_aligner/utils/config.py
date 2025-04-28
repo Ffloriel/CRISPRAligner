@@ -21,7 +21,7 @@ DEFAULT_CONFIGS = {
         "consensus_sequences": {
             "crr1": "GTGTTCCCCGCGCGAGCGGGGATAAACCG",
             "crr2": "GTGTTCCCCGCGCCAGCGGGGATAAACCG",
-            "crr4": "GTTCACTGCCAAAACCTGGGGATAAACCC",
+            "crr4": "GTGTTCCCCGCGCAAGCGGGGATAAACCG",
         },
         "short_checks": {
             "crr1_crr2_start": "GTGTTC",
