@@ -1,7 +1,7 @@
 """CRISPR repeat region (CRR) finder module for identifying CRISPR spacers in bacterial genomes."""
 
 from pathlib import Path
-from typing import Tuple, Dict, Union, List, TextIO, Optional
+from typing import Tuple, Dict, Union, List, TextIO, Optional, Any
 from Bio import SeqIO
 
 
@@ -87,9 +87,10 @@ def process_sequence(
     short_checks: Dict[str, str],
     min_scores: Dict[str, int],
     available_crrs: List[str] = None,
-) -> Tuple[int, int, int]:
+    max_frame_size: int = 20000,
+) -> Dict[str, Dict[str, int]]:
     """
-    Process a sequence to find CRR spacers.
+    Process a sequence to find CRR spacers, grouping them into frames.
 
     Args:
         record_id: Identifier for the sequence record
@@ -100,17 +101,22 @@ def process_sequence(
         short_checks: Dictionary of short check sequences for pattern matching
         min_scores: Dictionary of minimum scores for each CRR type
         available_crrs: List of available CRR types to search for
+        max_frame_size: Maximum size in bp for a CRISPR array frame
 
     Returns:
-        Tuple of (CRR1_count, CRR2_count, CRR4_count)
+        Dictionary of counts by CRR type and frame: {crr_type: {frame_letter: count}}
     """
     if available_crrs is None:
         available_crrs = ["crr1", "crr2", "crr4"]
 
-    crr1_count = 0
-    crr2_count = 0
-    crr4_count = 0
+    # Store found repeats with their positions for each CRR type
+    found_repeats = {
+        "crr1": [],  # List of (position, spacer) tuples
+        "crr2": [],
+        "crr4": [],
+    }
 
+    # Step 1: Find all repeats and their spacers, but don't output yet
     # Check for CRR1 and CRR2 patterns if they're available
     if "crr1" in available_crrs or "crr2" in available_crrs:
         check1 = list(short_checks["crr1_crr2_start"])
@@ -142,17 +148,14 @@ def process_sequence(
                         spacer = "".join(sequence[m + 29 : m + 59 + n])
 
                         if len(spacer) > 35:
-                            output_files["error"].write(
-                                f">{record_id} CRR1Spacer{crr1_count} {m+30}:{m+59+n}\n{spacer}\n"
-                            )
+                            if "error" in output_files:
+                                output_files["error"].write(
+                                    f">{record_id} CRR1Spacer {m+30}:{m+59+n}\n{spacer}\n"
+                                )
                             break
                         else:
-                            crr1_count += 1
-                            for file_key in ["all", "crr1"]:
-                                if file_key in output_files:
-                                    output_files[file_key].write(
-                                        f">{record_id} CRR1Spacer{crr1_count} {m+30}:{m+59+n}\n{spacer}\n"
-                                    )
+                            # Store for later processing
+                            found_repeats["crr1"].append((m, spacer))
                             break
 
                     # CRR2 match (only if crr2 is available)
@@ -164,17 +167,14 @@ def process_sequence(
                         spacer = "".join(sequence[m + 29 : m + 59 + n])
 
                         if len(spacer) > 35:
-                            output_files["error"].write(
-                                f">{record_id} CRR2Spacer{crr2_count} {m+30}:{m+59+n}\n{spacer}\n"
-                            )
+                            if "error" in output_files:
+                                output_files["error"].write(
+                                    f">{record_id} CRR2Spacer {m+30}:{m+59+n}\n{spacer}\n"
+                                )
                             break
                         else:
-                            crr2_count += 1
-                            for file_key in ["all", "crr2"]:
-                                if file_key in output_files:
-                                    output_files[file_key].write(
-                                        f">{record_id} CRR2Spacer{crr2_count} {m+30}:{m+59+n}\n{spacer}\n"
-                                    )
+                            # Store for later processing
+                            found_repeats["crr2"].append((m, spacer))
                             break
 
     # Check for CRR4 patterns if it's available
@@ -202,27 +202,81 @@ def process_sequence(
                         spacer = "".join(sequence[m + 28 : m + 58 + n])
 
                         if len(spacer) > 35:
-                            output_files["error"].write(
-                                f">{record_id} CRR4Spacer{crr4_count} {m+29}:{m+58+n}\n{spacer}\n"
-                            )
+                            if "error" in output_files:
+                                output_files["error"].write(
+                                    f">{record_id} CRR4Spacer {m+29}:{m+58+n}\n{spacer}\n"
+                                )
                             break
                         else:
-                            crr4_count += 1
-                            for file_key in ["all", "crr4"]:
-                                if file_key in output_files:
-                                    output_files[file_key].write(
-                                        f">{record_id} CRR4Spacer{crr4_count} {m+29}:{m+58+n}\n{spacer}\n"
-                                    )
+                            # Store for later processing
+                            found_repeats["crr4"].append((m, spacer))
                             break
 
+    # Step 2: Group repeats into frames based on max_frame_size
+    frame_counts = {
+        crr: {} for crr in available_crrs
+    }  # {crr_type: {frame_letter: count}}
+
+    # Define letter suffixes for frames
+    letters = "abcdefghijklmnopqrstuvwxyz"
+
+    # Process each CRR type
+    for crr in available_crrs:
+        if not found_repeats[crr]:
+            continue
+
+        # Sort repeats by position
+        found_repeats[crr].sort(key=lambda x: x[0])
+
+        current_frame = 0
+        frame_letter = letters[current_frame]
+        frame_start = found_repeats[crr][0][0]
+
+        frame_counts[crr][frame_letter] = 0
+
+        # Group repeats into frames
+        for pos, spacer in found_repeats[crr]:
+            # If this repeat is too far from frame start, start a new frame
+            if pos - frame_start > max_frame_size:
+                current_frame += 1
+                if current_frame < len(letters):
+                    frame_letter = letters[current_frame]
+                else:
+                    frame_letter = "z"  # Use 'z' for any frames beyond 26
+                frame_start = pos
+                frame_counts[crr][frame_letter] = 0
+
+            # Increment count for this frame
+            frame_counts[crr][frame_letter] += 1
+
+            # Write to appropriate output files
+            crr_upper = crr.upper()
+            frame_name = f"{crr_upper}{frame_letter.upper()}"
+
+            # Write to all file
+            if "all" in output_files:
+                output_files["all"].write(
+                    f">{record_id} {frame_name}Spacer{frame_counts[crr][frame_letter]} {pos+30}:{pos+30+len(spacer)}\n{spacer}\n"
+                )
+
+            # Write to specific frame file
+            frame_key = f"{crr}_{frame_letter}"
+            if frame_key in output_files:
+                output_files[frame_key].write(
+                    f">{record_id} {frame_name}Spacer{frame_counts[crr][frame_letter]} {pos+30}:{pos+30+len(spacer)}\n{spacer}\n"
+                )
+
     # Add newlines after each record's spacers
-    for file_key in ["all"] + [
-        crr for crr in ["crr1", "crr2", "crr4"] if crr in available_crrs
+    for file_key in ["all", "error"] + [
+        f"{crr}_{letter}"
+        for crr in available_crrs
+        for letter in frame_counts[crr].keys()
+        if f"{crr}_{letter}" in output_files
     ]:
         if file_key in output_files:
             output_files[file_key].write("\n")
 
-    return crr1_count, crr2_count, crr4_count
+    return frame_counts
 
 
 def find_crispr_spacers(
@@ -233,9 +287,10 @@ def find_crispr_spacers(
     min_scores: Dict[str, int],
     short_checks: Dict[str, str],
     available_crrs: List[str],
-) -> Dict[str, int]:
+    max_frame_size: int = 20000,
+) -> Dict[str, Any]:
     """
-    Find CRISPR spacers in a FASTA file.
+    Find CRISPR spacers in a FASTA file, organizing them into spatial frames.
 
     Args:
         input_file: Path to input FASTA file
@@ -245,11 +300,11 @@ def find_crispr_spacers(
         min_scores: Dictionary with minimum match scores for each CRR type
         short_checks: Dictionary with short sequence patterns for initial checks
         available_crrs: List of available CRR types to search for
+        max_frame_size: Maximum size in bp for a CRISPR array frame
 
     Returns:
-        Dictionary with counts for each CRR type and total
+        Dictionary with counts for each CRR frame and total
     """
-
     input_file = Path(results_dir, input_file)
 
     if not input_file.exists():
@@ -260,128 +315,196 @@ def find_crispr_spacers(
     for dir_name in ["", "AllCRR"]:
         (results_dir / dir_name).mkdir(parents=True, exist_ok=True)
 
-    # Create directories only for available CRRs
+    # First pass: Process sequences to identify all frames
+    print("First pass: Identifying CRISPR array frames...")
+    all_frames = {crr: set() for crr in available_crrs}
+
+    with input_file.open("r") as seq_file:
+        for record in SeqIO.parse(seq_file, "fasta"):
+            seq = record.seq
+
+            # Determine if sequence needs to be reverse complemented
+            if "crr1" in available_crrs:
+                reverse_complement_pattern = (
+                    consensus_sequences["crr1"][::-1]
+                    .replace("G", "C")
+                    .replace("C", "G")
+                    .replace("A", "T")
+                    .replace("T", "A")
+                )
+
+                if reverse_complement_pattern in seq:
+                    seq = list(seq.reverse_complement())
+                else:
+                    seq = list(seq)
+            else:
+                seq = list(seq)
+
+            # Process sequence to identify frames (dummy output_files dict)
+            frame_counts = process_sequence(
+                record.id,
+                seq,
+                {},  # Empty output_files for first pass
+                prefix,
+                consensus_sequences,
+                short_checks,
+                min_scores,
+                available_crrs,
+                max_frame_size,
+            )
+
+            # Collect all frame letters
+            for crr, frames in frame_counts.items():
+                all_frames[crr].update(frames.keys())
+
+    # Create directories for all discovered frames
+    print("Creating directories for discovered CRISPR frames...")
     for crr in available_crrs:
-        crr_upper = crr.upper()
-        (results_dir / crr_upper).mkdir(parents=True, exist_ok=True)
+        for frame_letter in sorted(all_frames[crr]):
+            crr_upper = crr.upper()
+            frame_dir = f"{crr_upper}{frame_letter.upper()}"
+            (results_dir / frame_dir).mkdir(parents=True, exist_ok=True)
+            print(f"Created directory for {frame_dir}")
 
     # Prepare output files dictionary
     output_files = {}
 
     # Open output files
     output_files["all"] = open(results_dir / "AllCRR" / f"{prefix}AllCRR.fasta", "w")
-
-    # Open files only for available CRRs
-    for crr in available_crrs:
-        crr_upper = crr.upper()
-        output_files[crr] = open(
-            results_dir / crr_upper / f"{prefix}{crr_upper}.fasta", "w"
-        )
-
-    # Always open error and csv files
     output_files["error"] = open(results_dir / f"{prefix}Error.fasta", "w")
     output_files["csv"] = open(results_dir / f"{prefix}Results.csv", "w")
 
-    try:
-        # Write headers
-        csv_header = "Strain ID"
-        for crr in available_crrs:
-            csv_header += f", {crr.upper()} Spacers"
-        csv_header += ", Total Spacers\n"
-        output_files["csv"].write(csv_header)
+    # Open files for each frame
+    for crr in available_crrs:
+        for frame_letter in sorted(all_frames[crr]):
+            crr_upper = crr.upper()
+            frame_dir = f"{crr_upper}{frame_letter.upper()}"
+            frame_key = f"{crr}_{frame_letter}"
+            output_files[frame_key] = open(
+                results_dir / frame_dir / f"{prefix}{frame_dir}.fasta", "w"
+            )
 
-        output_files["error"].write(
-            "Potential assembly errors found in the following spacers:\n\n"
-        )
+    # Write CSV header with all frames
+    csv_header = "Strain ID"
+    for crr in available_crrs:
+        for frame_letter in sorted(all_frames[crr]):
+            crr_upper = crr.upper()
+            frame_name = f"{crr_upper}{frame_letter.upper()}"
+            csv_header += f", {frame_name} Spacers"
+    csv_header += ", Total Spacers\n"
+    output_files["csv"].write(csv_header)
 
-        # Count total records for progress reporting
-        total_records = count_fasta_records(input_file)
-        print(f"Processing {total_records} records from {input_file}")
+    output_files["error"].write(
+        "Potential assembly errors found in the following spacers:\n\n"
+    )
 
-        # Process records
-        record_count = 0
-        all_counts = {crr: 0 for crr in available_crrs}
-        all_counts["total"] = 0
+    # Second pass: Process records and write output
+    print("Second pass: Processing sequences and writing output...")
+    total_records = count_fasta_records(input_file)
+    print(f"Processing {total_records} records from {input_file}")
 
-        with input_file.open("r") as seq_file:
-            for record in SeqIO.parse(seq_file, "fasta"):
-                record_count += 1
-                print(f"Processing {record.id} ({record_count}/{total_records})")
+    # Initialize counters for all frames
+    all_counts = {
+        f"{crr}_{letter}": 0 for crr in available_crrs for letter in all_frames[crr]
+    }
+    all_counts["total"] = 0
 
-                # Determine if sequence needs to be reverse complemented
-                seq = record.seq
+    # Process each record
+    record_count = 0
+    with input_file.open("r") as seq_file:
+        for record in SeqIO.parse(seq_file, "fasta"):
+            record_count += 1
+            print(f"Processing {record.id} ({record_count}/{total_records})")
 
-                # Only attempt reverse complement check if crr1 is available
-                if "crr1" in available_crrs:
-                    reverse_complement_pattern = (
-                        consensus_sequences["crr1"][::-1]
-                        .replace("G", "C")
-                        .replace("C", "G")
-                        .replace("A", "T")
-                        .replace("T", "A")
-                    )
+            # Determine if sequence needs to be reverse complemented
+            seq = record.seq
 
-                    if reverse_complement_pattern in seq:
-                        seq = list(seq.reverse_complement())
-                    else:
-                        seq = list(seq)
-                else:
-                    seq = list(seq)
-
-                # Find spacers
-                crr1_count, crr2_count, crr4_count = process_sequence(
-                    record.id,
-                    seq,
-                    output_files,
-                    prefix,
-                    consensus_sequences,
-                    short_checks,
-                    min_scores,
-                    available_crrs,
+            if "crr1" in available_crrs:
+                reverse_complement_pattern = (
+                    consensus_sequences["crr1"][::-1]
+                    .replace("G", "C")
+                    .replace("C", "G")
+                    .replace("A", "T")
+                    .replace("T", "A")
                 )
 
-                # Calculate total count based on available CRRs
-                crr_counts = {
-                    "crr1": crr1_count,
-                    "crr2": crr2_count,
-                    "crr4": crr4_count,
-                }
-                total_count = sum(crr_counts[crr] for crr in available_crrs)
+                if reverse_complement_pattern in seq:
+                    seq = list(seq.reverse_complement())
+                else:
+                    seq = list(seq)
+            else:
+                seq = list(seq)
 
-                # Update counts
-                for crr in available_crrs:
-                    all_counts[crr] += crr_counts[crr]
-                all_counts["total"] += total_count
+            # Process sequence and get frame counts
+            frame_counts = process_sequence(
+                record.id,
+                seq,
+                output_files,
+                prefix,
+                consensus_sequences,
+                short_checks,
+                min_scores,
+                available_crrs,
+                max_frame_size,
+            )
 
-                # Write results to CSV
-                csv_line = record.id
-                for crr in available_crrs:
-                    csv_line += f", {crr_counts[crr]}"
-                csv_line += f", {total_count}\n"
-                output_files["csv"].write(csv_line)
+            # Calculate total count
+            record_total = sum(
+                sum(counts.values())
+                for crr, counts in frame_counts.items()
+                if crr in available_crrs
+            )
 
-                # Print progress with only available CRRs
-                status_msg = f"Spacers found: "
-                for crr in available_crrs:
+            # Update counts
+            for crr in available_crrs:
+                for frame_letter, count in frame_counts[crr].items():
+                    frame_key = f"{crr}_{frame_letter}"
+                    all_counts[frame_key] += count
+
+            all_counts["total"] += record_total
+
+            # Write results to CSV
+            csv_line = record.id
+            for crr in available_crrs:
+                for frame_letter in sorted(all_frames[crr]):
+                    count = frame_counts[crr].get(frame_letter, 0)
+                    csv_line += f", {count}"
+            csv_line += f", {record_total}\n"
+            output_files["csv"].write(csv_line)
+
+            # Print progress summary
+            status_msg = f"Spacers found: "
+            for crr in available_crrs:
+                for frame_letter in sorted(all_frames[crr]):
                     crr_upper = crr.upper()
-                    status_msg += f"{crr_upper} {crr_counts[crr]}, "
-                status_msg += f"total {total_count}"
-                print(status_msg)
+                    frame_name = f"{crr_upper}{frame_letter.upper()}"
+                    count = frame_counts[crr].get(frame_letter, 0)
+                    if count > 0:
+                        status_msg += f"{frame_name} {count}, "
+            status_msg += f"total {record_total}"
+            print(status_msg)
 
-        print(f"Processing complete. Results written to {results_dir} directory")
+    print(f"Processing complete. Results written to {results_dir} directory")
 
-        # Print summary with only available CRRs
-        summary_msg = f"Total spacers found: "
-        for crr in available_crrs:
+    # Print summary of all frames
+    summary_msg = f"Total spacers found: "
+    for crr in available_crrs:
+        for frame_letter in sorted(all_frames[crr]):
             crr_upper = crr.upper()
-            summary_msg += f"{crr_upper} {all_counts[crr]}, "
-        summary_msg += f"total {all_counts['total']}"
-        print(summary_msg)
+            frame_name = f"{crr_upper}{frame_letter.upper()}"
+            frame_key = f"{crr}_{frame_letter}"
+            count = all_counts[frame_key]
+            if count > 0:
+                summary_msg += f"{frame_name} {count}, "
+    summary_msg += f"total {all_counts['total']}"
+    print(summary_msg)
 
-    finally:
-        # Close all open files
+    # Close all open files
+    try:
         for file_handle in output_files.values():
             if not file_handle.closed:
                 file_handle.close()
+    except Exception as e:
+        print(f"Error closing files: {e}")
 
     return all_counts

@@ -14,8 +14,8 @@ from crispr_aligner.combiner.crr_combiner import (
 from crispr_aligner.utils.config import load_bacteria_config, get_available_bacteria
 
 
-def create_folder_structure(base_dir, available_crrs):
-    """Create the required folder structure for results."""
+def create_folder_structure(base_dir):
+    """Create the basic folder structure for results."""
     results_dir = base_dir / "Results"
     if results_dir.exists():
         shutil.rmtree(results_dir)
@@ -24,10 +24,8 @@ def create_folder_structure(base_dir, available_crrs):
     (base_dir / "Results").mkdir(parents=True, exist_ok=True)
     (base_dir / "Results/AllCRR").mkdir(parents=True, exist_ok=True)
 
-    # Create directories only for available CRRs
-    for crr in available_crrs:
-        crr_upper = crr.upper()
-        (base_dir / f"Results/{crr_upper}").mkdir(parents=True, exist_ok=True)
+    # Frame-specific directories will be created by find_crispr_spacers
+    # based on the actual frames found in the sequences
 
     return results_dir
 
@@ -70,6 +68,13 @@ def main():
         help="Minimum score for CRR4 match (default: 21)",
     )
 
+    parser.add_argument(
+        "--max_frame_size",
+        type=int,
+        default=20000,
+        help="Maximum size in bp for a CRISPR array frame (default: 20000)",
+    )
+
     args = parser.parse_args()
 
     # Load appropriate configuration
@@ -80,7 +85,7 @@ def main():
 
     base_dir = Path(args.input_dir)
     available_crrs = config.get("available_crrs", ["crr1", "crr2", "crr4"])
-    results_dir = create_folder_structure(base_dir, available_crrs)
+    results_dir = create_folder_structure(base_dir)
 
     print("Combining FASTA Files...")
     combined_fasta = f"{args.prefix}.fasta"
@@ -98,51 +103,57 @@ def main():
             "crr4": args.min_crr4_score,
         },
         short_checks=config["short_checks"],
-        available_crrs=config["available_crrs"],
+        available_crrs=available_crrs,
+        max_frame_size=args.max_frame_size,  # Pass max_frame_size parameter
     )
 
+    # Discover all frame directories created by find_crispr_spacers
+    frame_dirs = []
+    for item in results_dir.iterdir():
+        if item.is_dir() and item.name not in ["AllCRR"]:
+            frame_dirs.append(item.name)
+
+    print(f"Found {len(frame_dirs)} CRISPR array frames: {', '.join(frame_dirs)}")
+
     print("Aligning CRISPR Spacers...")
-    for crr in available_crrs:
-        crr_upper = crr.upper()
-        input_file = results_dir / crr_upper / f"{args.prefix}.{crr_upper}.fasta"
+    for frame_dir in frame_dirs:
+        input_file = results_dir / frame_dir / f"{args.prefix}.{frame_dir}.fasta"
 
         # Skip if the file doesn't exist or is empty
         if not input_file.exists() or input_file.stat().st_size == 0:
-            print(f"Skipping alignment for {crr_upper} (no spacers found)")
+            print(f"Skipping alignment for {frame_dir} (no spacers found)")
             continue
 
         align_spacers(
             input_file,
-            f"{results_dir}/{crr_upper}/{args.prefix}.{crr_upper}Aligned.csv",
-            f"{results_dir}/{crr_upper}/{args.prefix}.{crr_upper}Aligned.fasta",
-            f"{results_dir}/{crr_upper}/{args.prefix}.{crr_upper}Unique.fasta",
-            f"{results_dir}/{crr_upper}/{args.prefix}.{crr_upper}Binary.phy",
-            crr_upper,
+            results_dir / frame_dir / f"{args.prefix}.{frame_dir}Aligned.csv",
+            results_dir / frame_dir / f"{args.prefix}.{frame_dir}Aligned.fasta",
+            results_dir / frame_dir / f"{args.prefix}.{frame_dir}Unique.fasta",
+            results_dir / frame_dir / f"{args.prefix}.{frame_dir}Binary.phy",
+            frame_dir,
         )
 
     print("Combining Aligned CRISPR Cassettes")
-    # Prepare the input files for combination
-    valid_crrs = []
-    for crr in available_crrs:
-        crr_upper = crr.upper()
-        fasta_file = results_dir / crr_upper / f"{args.prefix}.{crr_upper}Aligned.fasta"
+    # Find frames with valid data for combination
+    valid_frames = []
+    for frame_dir in frame_dirs:
+        fasta_file = results_dir / frame_dir / f"{args.prefix}.{frame_dir}Aligned.fasta"
         if fasta_file.exists() and fasta_file.stat().st_size > 0:
-            valid_crrs.append(crr)
+            valid_frames.append(frame_dir)
 
-    # Only proceed if we have at least 2 CRRs with data
-    if len(valid_crrs) >= 2:
+    # Only proceed if we have at least 2 frame directories with data
+    if len(valid_frames) >= 2:
         # Collect files for each type
         fasta_files = []
         csv_files = []
         phy_files = []
 
-        for crr in valid_crrs:
-            crr_upper = crr.upper()
+        for frame_dir in valid_frames:
             fasta_file = (
-                results_dir / crr_upper / f"{args.prefix}.{crr_upper}Aligned.fasta"
+                results_dir / frame_dir / f"{args.prefix}.{frame_dir}Aligned.fasta"
             )
-            csv_file = results_dir / crr_upper / f"{args.prefix}.{crr_upper}Aligned.csv"
-            phy_file = results_dir / crr_upper / f"{args.prefix}.{crr_upper}Binary.phy"
+            csv_file = results_dir / frame_dir / f"{args.prefix}.{frame_dir}Aligned.csv"
+            phy_file = results_dir / frame_dir / f"{args.prefix}.{frame_dir}Binary.phy"
 
             if fasta_file.exists() and fasta_file.stat().st_size > 0:
                 fasta_files.append(fasta_file)
@@ -154,21 +165,23 @@ def main():
         csv_output = results_dir / "AllCRR" / f"{args.prefix}.AllCRRAligned.csv"
         phy_output = results_dir / "AllCRR" / f"{args.prefix}.AllCRRBinary.phy"
 
-        # Call the dynamic combine functions
+        # Call the combine functions
         if fasta_files:
-            print(f"Combining aligned FASTA files from {len(fasta_files)} CRR regions")
+            print(
+                f"Combining aligned FASTA files from {len(fasta_files)} CRISPR frames"
+            )
             combine_fasta(fasta_files, fasta_output)
 
         if csv_files:
-            print(f"Combining CSV files from {len(csv_files)} CRR regions")
+            print(f"Combining CSV files from {len(csv_files)} CRISPR frames")
             combine_csv(csv_files, csv_output)
 
         if phy_files:
-            print(f"Combining binary phylip files from {len(phy_files)} CRR regions")
+            print(f"Combining binary phylip files from {len(phy_files)} CRISPR frames")
             combine_binary(phy_files, phy_output)
     else:
         print(
-            f"Need at least 2 CRR regions with data to combine. Found {len(valid_crrs)}."
+            f"Need at least 2 CRISPR frames with data to combine. Found {len(valid_frames)}."
         )
 
     print("Analysis complete. Results available in the Results directory.")

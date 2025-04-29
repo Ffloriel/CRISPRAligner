@@ -3,16 +3,17 @@
 [![Python 3.6+](https://img.shields.io/badge/python-3.6+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A Python tool for identifying, extracting, and aligning CRISPR spacer sequences from bacterial genomes, with a focus on *Erwinia amylovora* CRISPR repeat regions (CRRs).
+A Python tool for identifying, extracting, and aligning CRISPR spacer sequences from bacterial genomes, with a focus on CRISPR repeat regions (CRRs) in different bacteria.
 
 ## Overview
 
 CRISPRAligner processes bacterial genome FASTA files to:
 
-1. Identify CRISPR repeat regions (CRR1, CRR2, and CRR4)
-2. Extract spacer sequences between repeats
-3. Align spacers across different genomes
-4. Generate comparative analyses in multiple formats (FASTA, CSV, and binary phylip)
+1. Identify CRISPR repeat regions (like CRR1, CRR2, and when available, CRR4)
+2. Group CRISPR arrays by spatial proximity to detect separate arrays with letter suffixes (e.g., CRR1A, CRR1B)
+3. Extract spacer sequences between repeats
+4. Align spacers across different genomes
+5. Generate comparative analyses in multiple formats (FASTA, CSV, and binary phylip)
 
 The tool supports both individual analyses of specific CRISPR cassettes and combined analyses for phylogenetic applications.
 
@@ -50,6 +51,7 @@ Where:
 - `--bacteria` (optional) species name to load built-in configurations (defaults to "erwinia")
 - `--custom_config` (optional) path to a custom JSON configuration file
 - `--min_crr1_score`, `--min_crr2_score`, `--min_crr4_score` (optional) minimum match scores
+- `--max_frame_size` (optional) maximum size in bp for a CRISPR array frame (default: 20000)
 
 ### Examples
 
@@ -57,7 +59,7 @@ Where:
 # Process FASTA files in the current directory with prefix "Erwinia"
 crispr_aligner Erwinia
 
-# Use built-in Phytobacter configuration
+# Use built-in Phytobacter configuration (no CRR4)
 crispr_aligner Phytobacter --bacteria phytobacter
 
 # Use a custom configuration file
@@ -65,6 +67,9 @@ crispr_aligner MyBacteria --custom_config my_species_config.json
 
 # Adjust minimum match scores
 crispr_aligner Erwinia --min_crr1_score 20 --min_crr4_score 18
+
+# Change max frame size for spatially separating CRISPR arrays
+crispr_aligner Erwinia --max_frame_size 15000
 ```
 
 ### Output
@@ -79,16 +84,18 @@ Results/
 │   ├── Erwinia.AllCRRAligned.csv
 │   ├── Erwinia.AllCRRAligned.fasta
 │   └── Erwinia.AllCRRBinary.phy
-├── CRR1/                     # CRR1-specific results
-│   ├── Erwinia.CRR1.fasta
-│   ├── Erwinia.CRR1Aligned.csv
-│   ├── Erwinia.CRR1Aligned.fasta
-│   ├── Erwinia.CRR1Binary.phy
-│   └── Erwinia.CRR1Unique.fasta
-├── CRR2/                     # CRR2-specific results
-│   └── [Similar files for CRR2]
-└── CRR4/                     # CRR4-specific results
-    └── [Similar files for CRR4]
+├── CRR1A/                    # First spatial frame of CRR1 results
+│   ├── Erwinia.CRR1A.fasta
+│   ├── Erwinia.CRR1AAligned.csv
+│   ├── Erwinia.CRR1AAligned.fasta
+│   ├── Erwinia.CRR1ABinary.phy
+│   └── Erwinia.CRR1AUnique.fasta
+├── CRR1B/                    # Second spatial frame of CRR1 (if found)
+│   └── [Similar files for CRR1B]
+├── CRR2A/                    # First spatial frame of CRR2
+│   └── [Similar files for CRR2A]
+└── CRR4A/                    # First spatial frame of CRR4 (if available)
+    └── [Similar files for CRR4A]
 ```
 
 ## Configuration System
@@ -98,8 +105,8 @@ CRISPRAligner supports different bacterial species through a flexible configurat
 ### Built-in Configurations
 
 The tool includes built-in configurations for several bacteria:
-- `erwinia` (default): *Erwinia amylovora*
-- `ecoli`: *Escherichia coli*
+- `erwinia` (default): *Erwinia amylovora* (CRR1, CRR2, CRR4)
+- `phytobacter`: *Phytobacter* species (CRR1, CRR2 only, no CRR4)
 - And others (use `--bacteria` parameter to specify)
 
 ### Custom Configuration Files
@@ -118,27 +125,27 @@ For other species, you can create a custom JSON configuration file:
     "crr1_crr2_end": "ATAAACC",
     "crr4_start": "GTTCAC",
     "crr4_middle": "GTACAGG"
-  }
+  },
+  "available_crrs": ["crr1", "crr2", "crr4"]
 }
 ```
 
 The configuration contains:
 - `consensus_sequences`: The CRR consensus sequences to search for
 - `short_checks`: Short sequences used for initial pattern matching
+- `available_crrs`: List of CRR types available for this bacteria (omit unavailable ones)
 
 ## Programmatic Usage
 
 You can also use the package in your own Python scripts:
 
 ```python
-from crispr_aligner import find_crispr_spacers, align_spacers, combine_alignments
+from crispr_aligner import find_crispr_spacers, align_spacers
+from crispr_aligner.combiner.crr_combiner import combine_fasta, combine_csv, combine_binary
 from crispr_aligner.utils import load_bacteria_config
 
 # Load a configuration for a specific bacteria
 config = load_bacteria_config("phytobacter")
-
-# Or load a custom configuration
-# config = load_bacteria_config("/path/to/custom_config.json")
 
 # Find CRISPR spacers in genomes with specific configuration
 find_crispr_spacers(
@@ -147,27 +154,37 @@ find_crispr_spacers(
     results_dir="Results",
     consensus_sequences=config["consensus_sequences"],
     short_checks=config["short_checks"],
-    min_scores={"crr1": 22, "crr2": 22, "crr4": 21}
+    available_crrs=config["available_crrs"],
+    min_scores={"crr1": 22, "crr2": 22, "crr4": 21},
+    max_frame_size=20000
 )
 
-# Align spacers for a specific CRISPR repeat region
-align_spacers(
-    "Results/CRR1/MyPrefix.CRR1.fasta",
-    "Results/CRR1/MyPrefix.CRR1Aligned.csv",
-    "Results/CRR1/MyPrefix.CRR1Aligned.fasta",
-    "Results/CRR1/MyPrefix.CRR1Unique.fasta",
-    "Results/CRR1/MyPrefix.CRR1Binary.phy",
-    "CRR1"
-)
+# Get all frame directories created by find_crispr_spacers
+frame_dirs = []
+for item in Path("Results").iterdir():
+    if item.is_dir() and item.name not in ["AllCRR"]:
+        frame_dirs.append(item.name)
 
-# Combine alignments from different CRISPR regions
-combine_alignments(
-    "Results/CRR1/MyPrefix.CRR1Aligned.fasta",
-    "Results/CRR2/MyPrefix.CRR2Aligned.fasta",
-    "Results/CRR4/MyPrefix.CRR4Aligned.fasta",
-    "Results/AllCRR/MyPrefix.AllCRRAligned.fasta",
-    # Additional parameters...
-)
+# Align spacers for each frame
+for frame in frame_dirs:
+    align_spacers(
+        f"Results/{frame}/MyPrefix.{frame}.fasta",
+        f"Results/{frame}/MyPrefix.{frame}Aligned.csv",
+        f"Results/{frame}/MyPrefix.{frame}Aligned.fasta",
+        f"Results/{frame}/MyPrefix.{frame}Unique.fasta",
+        f"Results/{frame}/MyPrefix.{frame}Binary.phy",
+        frame
+    )
+
+# Collect files for combination
+fasta_files = [f"Results/{frame}/MyPrefix.{frame}Aligned.fasta" for frame in frame_dirs]
+csv_files = [f"Results/{frame}/MyPrefix.{frame}Aligned.csv" for frame in frame_dirs]
+phy_files = [f"Results/{frame}/MyPrefix.{frame}Binary.phy" for frame in frame_dirs]
+
+# Combine alignments from different frames
+combine_fasta(fasta_files, "Results/AllCRR/MyPrefix.AllCRRAligned.fasta")
+combine_csv(csv_files, "Results/AllCRR/MyPrefix.AllCRRAligned.csv")
+combine_binary(phy_files, "Results/AllCRR/MyPrefix.AllCRRBinary.phy")
 ```
 
 ## Project Structure
@@ -202,20 +219,38 @@ CRISPRAligner/
 
 ### CRISPR Repeat Regions
 
-CRISPRAligner identifies three different CRISPR repeat regions in *Erwinia amylovora*:
+CRISPRAligner identifies different CRISPR repeat regions depending on the bacteria:
 
+For *Erwinia amylovora*:
 1. **CRR1**: Consensus sequence `GTGTTCCCCGCGTGAGCGGGGATAAACCG`
 2. **CRR2**: Consensus sequence `GTGTTCCCCGCGTATGCGGGGATAAACCG`
 3. **CRR4**: Consensus sequence `GTTCACTGCCGTACAGGCAGCTTAGAAA`
 
+For *Phytobacter* species:
+1. **CRR1**: Consensus sequence `GTGTTCCCCGCGCGAGCGGGGATAAACCG`
+2. **CRR2**: Consensus sequence `GTGTTCCCCGCGCCAGCGGGGATAAACCG`
+(CRR4 is not present in Phytobacter)
+
 Other bacteria will have different consensus sequences, which can be specified through the configuration system.
+
+### Frame-Based CRISPR Detection
+
+CRISPRAligner now groups CRISPR arrays into frames based on spatial proximity:
+
+1. CRISPR repeats of the same type (e.g., CRR1) are grouped into a frame if they are within a maximum distance (default: 20,000 bp)
+2. Repeats separated by more than the maximum distance are considered separate arrays and assigned different letter suffixes (e.g., CRR1A, CRR1B)
+3. Each frame is processed separately for alignment and analysis
+4. Results can be combined across frames for comprehensive analysis
+
+This approach preserves the biological reality that spatially separate CRISPR arrays of the same type are functionally distinct units.
 
 ### Analysis Process
 
 1. **Finding**: Sequences are scanned for matches to CRISPR repeat consensus sequences
-2. **Extraction**: Spacers between repeats are extracted
-3. **Alignment**: Spacers are aligned across different genomes
-4. **Combination**: Results from different CRR types are combined for comparative analysis
+2. **Framing**: Repeats are grouped into spatial frames (e.g., CRR1A, CRR1B)
+3. **Extraction**: Spacers between repeats are extracted
+4. **Alignment**: Spacers are aligned across different genomes, separately for each frame
+5. **Combination**: Results from different frames are combined for comparative analysis
 
 ## License
 
